@@ -109,18 +109,27 @@ func (m *appStateManager) SyncAppState(app *v1alpha1.Application, state *v1alpha
 		return
 	}
 
-	isMultiSourceRevision := app.Spec.HasMultipleSources()
-	rollback := len(syncOp.Sources) > 0 || syncOp.Source != nil
-	if rollback {
-		// rollback case
-		if len(state.Operation.Sync.Sources) > 0 {
-			sources = state.Operation.Sync.Sources
-			isMultiSourceRevision = true
-		} else {
-			source = *state.Operation.Sync.Source
-			sources = make([]v1alpha1.ApplicationSource, 0)
-			isMultiSourceRevision = false
+	proj, err := argo.GetAppProject(app, listersv1alpha1.NewAppProjectLister(m.projInformer.GetIndexer()), m.namespace, m.settingsMgr, m.db, context.TODO())
+	if err != nil {
+		state.Phase = common.OperationError
+		state.Message = fmt.Sprintf("Failed to load application project: %v", err)
+		return
+	} else if syncWindowPreventsSync(app, proj) {
+		// If the operation is currently running, simply let the user know the sync is blocked by a current sync window
+		if state.Phase == common.OperationRunning {
+			state.Message = "Sync operation blocked by sync window"
 		}
+		return
+	}
+
+	isMultiSourceRevision := app.Spec.HasMultipleSources()
+	if len(syncOp.Sources) > 0 {
+		sources = state.Operation.Sync.Sources
+		isMultiSourceRevision = true
+	} else if syncOp.Source != nil {
+		source = *state.Operation.Sync.Source
+		sources = make([]v1alpha1.ApplicationSource, 0)
+		isMultiSourceRevision = false
 	} else {
 		// normal sync case (where source is taken from app.spec.sources)
 		if app.Spec.HasMultipleSources() {
@@ -160,28 +169,13 @@ func (m *appStateManager) SyncAppState(app *v1alpha1.Application, state *v1alpha
 		if revision == "" {
 			revision = syncOp.Revision
 		}
-	}
-
-	proj, err := argo.GetAppProject(app, listersv1alpha1.NewAppProjectLister(m.projInformer.GetIndexer()), m.namespace, m.settingsMgr, m.db, context.TODO())
-	if err != nil {
-		state.Phase = common.OperationError
-		state.Message = fmt.Sprintf("Failed to load application project: %v", err)
-		return
-	} else if syncWindowPreventsSync(app, proj) {
-		// If the operation is currently running, simply let the user know the sync is blocked by a current sync window
-		if state.Phase == common.OperationRunning {
-			state.Message = "Sync operation blocked by sync window"
-		}
-		return
-	}
-
-	if !isMultiSourceRevision {
 		sources = []v1alpha1.ApplicationSource{source}
 		revisions = []string{revision}
 	}
 
 	// ignore error if CompareStateRepoError, this shouldn't happen as noRevisionCache is true
-	compareResult, err := m.CompareAppState(app, proj, revisions, sources, false, true, syncOp.Manifests, isMultiSourceRevision, rollback)
+	isRollback := len(syncOp.Sources) > 0 || syncOp.Source != nil
+	compareResult, err := m.CompareAppState(app, proj, revisions, sources, false, true, syncOp.Manifests, isMultiSourceRevision, isRollback)
 	if err != nil && !goerrors.Is(err, CompareStateRepoError) {
 		state.Phase = common.OperationError
 		state.Message = err.Error()
