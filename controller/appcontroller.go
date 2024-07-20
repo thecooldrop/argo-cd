@@ -1311,30 +1311,26 @@ func (ctrl *ApplicationController) setAppCondition(app *appv1.Application, condi
 	}
 }
 
+func (ctrl *ApplicationController) handleRequestedAppOperationPanics(app *appv1.Application, state *appv1.OperationState, logCtx *log.Entry) {
+	if r := recover(); r != nil {
+		logCtx.Errorf("Recovered from panic: %+v\n%s", r, debug.Stack())
+		state.Phase = synccommon.OperationError
+		if rerr, ok := r.(error); ok {
+			state.Message = rerr.Error()
+		} else {
+			state.Message = fmt.Sprintf("%v", r)
+		}
+		ctrl.setOperationState(app, state)
+	}
+}
+
 func (ctrl *ApplicationController) processRequestedAppOperation(app *appv1.Application) {
 	logCtx := getAppLog(app)
 	var state *appv1.OperationState
 	// Recover from any unexpected panics and automatically set the status to be failed
-	defer func() {
-		if r := recover(); r != nil {
-			logCtx.Errorf("Recovered from panic: %+v\n%s", r, debug.Stack())
-			state.Phase = synccommon.OperationError
-			if rerr, ok := r.(error); ok {
-				state.Message = rerr.Error()
-			} else {
-				state.Message = fmt.Sprintf("%v", r)
-			}
-			ctrl.setOperationState(app, state)
-		}
-	}()
+	defer ctrl.handleRequestedAppOperationPanics(app, state, logCtx)
 	ts := stats.NewTimingStats()
-	defer func() {
-		for k, v := range ts.Timings() {
-			logCtx = logCtx.WithField(k, v.Milliseconds())
-		}
-		logCtx = logCtx.WithField("time_ms", time.Since(ts.StartTime).Milliseconds())
-		logCtx.Debug("Finished processing requested app operation")
-	}()
+	defer logTimings(ts, logCtx, "Finished processing requested app operation")
 	terminating := false
 	if isOperationInProgress(app) {
 		state = app.Status.OperationState.DeepCopy()
@@ -1895,17 +1891,20 @@ func (ctrl *ApplicationController) persistAppStatus(orig *appv1.Application, new
 	return patchMs
 }
 
+func logTimings(ts *stats.TimingStats, logCtx *log.Entry, message string) {
+	for k, v := range ts.Timings() {
+		logCtx = logCtx.WithField(k, v.Milliseconds())
+	}
+	logCtx = logCtx.WithField("time_ms", time.Since(ts.StartTime).Milliseconds())
+	logCtx.Debug(message)
+}
+
 // autoSync will initiate a sync operation for an application configured with automated sync
 func (ctrl *ApplicationController) autoSync(app *appv1.Application, syncStatus *appv1.SyncStatus, resources []appv1.ResourceStatus) (*appv1.ApplicationCondition, time.Duration) {
 	logCtx := getAppLog(app)
 	ts := stats.NewTimingStats()
-	defer func() {
-		for k, v := range ts.Timings() {
-			logCtx = logCtx.WithField(k, v.Milliseconds())
-		}
-		logCtx = logCtx.WithField("time_ms", time.Since(ts.StartTime).Milliseconds())
-		logCtx.Debug("Finished auto sync")
-	}()
+	defer logTimings(ts, logCtx, "Finished auto sync")
+
 	if app.Spec.SyncPolicy == nil || app.Spec.SyncPolicy.Automated == nil {
 		return nil, 0
 	}
