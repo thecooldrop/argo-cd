@@ -39,6 +39,7 @@ import (
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 
 	"github.com/argoproj/gitops-engine/pkg/health"
+	"github.com/argoproj/gitops-engine/pkg/sync/common"
 	"github.com/argoproj/gitops-engine/pkg/utils/kube"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/go-cmp/cmp"
@@ -1879,9 +1880,10 @@ func TestWaitOnApplicationStatus_JSON_YAML_WideOutput(t *testing.T) {
 	})
 	timeStr := time.Now().Format("2006-01-02T15:04:05-07:00")
 
-	expectation := `TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-%s            Service     default         service-name1    Synced  Healthy              
-%s   apps  Deployment     default                  test    Synced  Healthy              
+	expectation := `TIMESTAMP                  GROUP                            KIND    NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+%s                                Service      default         service-name1    Synced  Healthy              
+%s   apps                      Deployment      default                  test    Synced  Healthy              
+%s  rbac.authorization.k8s.io  ClusterRole                 test-cluster-role    Synced  Healthy                  
 
 Name:               argocd/test
 Project:            default
@@ -1907,11 +1909,12 @@ Finished:           2020-11-10 23:00:00 +0000 UTC
 Duration:           2333448h16m18.871345152s
 Message:            test
 
-GROUP  KIND        NAMESPACE  NAME           STATUS  HEALTH   HOOK  MESSAGE
-       Service     default    service-name1  Synced  Healthy        
-apps   Deployment  default    test           Synced  Healthy        
+GROUP                      KIND         NAMESPACE  NAME               STATUS   HEALTH   HOOK  MESSAGE
+                           Service      default    service-name1      Synced   Healthy        
+apps                       Deployment   default    test               Synced   Healthy        
+rbac.authorization.k8s.io  ClusterRole             test-cluster-role  Synced   Healthy        
 `
-	expectation = fmt.Sprintf(expectation, timeStr, timeStr)
+	expectation = fmt.Sprintf(expectation, timeStr, timeStr, timeStr)
 	expectationParts := strings.Split(expectation, "\n")
 	slices.Sort(expectationParts)
 	expectationSorted := strings.Join(expectationParts, "\n")
@@ -2027,10 +2030,61 @@ func (c *fakeAppServiceClient) Get(ctx context.Context, in *applicationpkg.Appli
 						Message: "health-message",
 					},
 				},
+				{
+					// This resource is included to exclude the bug https://github.com/argoproj/argo-cd/issues/18669
+					Group:     "rbac.authorization.k8s.io",
+					Kind:      "ClusterRole",
+					Namespace: "",
+					Name:      "test-cluster-role",
+					Status:    "Synced",
+					Health: &v1alpha1.HealthStatus{
+						Status:  health.HealthStatusHealthy,
+						Message: "health-message",
+					},
+				},
 			},
 			OperationState: &v1alpha1.OperationState{
 				SyncResult: &v1alpha1.SyncOperationResult{
 					Revision: "revision",
+					// Resources included here due to bug: https://github.com/argoproj/argo-cd/issues/18669
+					Resources: []*v1alpha1.ResourceResult{
+						{
+							Group:     "",
+							Kind:      "Service",
+							Namespace: "default",
+							Name:      "service-name1",
+							Status:    common.ResultCodeSynced,
+							HookType:  "",
+							HookPhase: common.OperationRunning,
+							Version:   "v1",
+							Message:   "",
+							SyncPhase: common.SyncPhaseSync,
+						},
+						{
+							Group:     "apps",
+							Kind:      "Deployment",
+							Namespace: "default",
+							Name:      "test",
+							Status:    common.ResultCodeSynced,
+							HookType:  "",
+							HookPhase: common.OperationRunning,
+							Version:   "v1",
+							Message:   "",
+							SyncPhase: common.SyncPhaseSync,
+						},
+						{
+							Group:     "rbac.authorization.k8s.io",
+							Kind:      "ClusterRole",
+							Namespace: "default",
+							Name:      "test-cluster-role",
+							Status:    common.ResultCodeSynced,
+							HookType:  "",
+							HookPhase: common.OperationRunning,
+							Version:   "v1",
+							Message:   "",
+							SyncPhase: common.SyncPhaseSync,
+						},
+					},
 				},
 				FinishedAt: &time,
 				Message:    "test",
