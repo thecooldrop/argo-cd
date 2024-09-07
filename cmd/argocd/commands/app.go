@@ -1829,12 +1829,12 @@ func NewApplicationWaitCommand(clientOpts *argocdclient.ClientOptions, pathOpts 
 func printAppResources(w io.Writer, app *argoappv1.Application, discoveryClient discovery.DiscoveryInterface) {
 	_, _ = fmt.Fprintf(w, "GROUP\tKIND\tNAMESPACE\tNAME\tSTATUS\tHEALTH\tHOOK\tMESSAGE\n")
 	versionedResourceStates := getVersionedResourceStates(app, nil)
-	for _, res := range removeDuplicateClusterLevelResources(versionedResourceStates, discoveryClient) {
+	for _, res := range mergeDuplicateClusterLevelResources(versionedResourceStates, discoveryClient) {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", res.Group, res.Kind, res.Namespace, res.Name, res.Status, res.Health, res.Hook, res.Message)
 	}
 }
 
-func removeDuplicateClusterLevelResources(resourceStates []*versionedResourceState, discoveryClient discovery.DiscoveryInterface) []*versionedResourceState {
+func mergeDuplicateClusterLevelResources(resourceStates []*versionedResourceState, discoveryClient discovery.DiscoveryInterface) []*versionedResourceState {
 	resourcesByKey := make(map[kube.ResourceKey]*versionedResourceState)
 	for _, resource := range resourceStates {
 		groupVersion := ""
@@ -1847,16 +1847,21 @@ func removeDuplicateClusterLevelResources(resourceStates []*versionedResourceSta
 			errors.CheckError(fmt.Errorf("unable to retrieve server resources for group and version combination %s: %w", groupVersion, err))
 		}
 
-		namespace := ""
 		for _, apiResource := range apiResourceList.APIResources {
 			if resource.Group == apiResource.Group && resource.Version == apiResource.Version && resource.Kind == apiResource.Kind {
-				if apiResource.Namespaced {
-					namespace = resource.Namespace
+				if !apiResource.Namespaced {
+					resource.Namespace = ""
 				}
 			}
 		}
 
-		resourcesByKey[kube.NewResourceKey(resource.Group, resource.Kind, namespace, resource.Name)] = resource
+		resourceKey := kube.NewResourceKey(resource.Group, resource.Kind, resource.Namespace, resource.Name)
+		previous, ok := resourcesByKey[resourceKey]
+		if ok {
+			previous.Merge(resource)
+		} else {
+			resourcesByKey[resourceKey] = resource
+		}
 	}
 
 	var uniqueResources []*versionedResourceState
@@ -2396,7 +2401,7 @@ func filterAppResources(app *argoappv1.Application, selectedResources []*argoapp
 
 func groupResourceStates(app *argoappv1.Application, selectedResources []*argoappv1.SyncOperationResource, discovery discovery.DiscoveryInterface) map[string]*versionedResourceState {
 	resStates := make(map[string]*versionedResourceState)
-	for _, result := range removeDuplicateClusterLevelResources(getVersionedResourceStates(app, selectedResources), discovery) {
+	for _, result := range mergeDuplicateClusterLevelResources(getVersionedResourceStates(app, selectedResources), discovery) {
 		key := result.Key()
 		if prev, ok := resStates[key]; ok {
 			prev.Merge(result)

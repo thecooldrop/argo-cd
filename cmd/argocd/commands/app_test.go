@@ -1941,7 +1941,7 @@ func TestWaitOnApplicationStatus_JSON_YAML_WideOutput(t *testing.T) {
 
 	expectation := `TIMESTAMP                  GROUP                            KIND    NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
 %s   apps                      Deployment      default                  test    Synced  Healthy              
-%s  rbac.authorization.k8s.io  ClusterRole                 test-cluster-role    Synced  Healthy              
+%s  rbac.authorization.k8s.io  ClusterRole                 test-cluster-role    Synced  Healthy              clusterrole.rbac.authorization.k8s.io/test-cluster-role reconciled. clusterrole.rbac.authorization.k8s.io/test-cluster-role configured
 %s                                Service      default         service-name1    Synced  Healthy              
 
 Name:               argocd/test
@@ -1970,7 +1970,7 @@ Message:            test
 
 GROUP                      KIND         NAMESPACE  NAME               STATUS  HEALTH   HOOK  MESSAGE
 apps                       Deployment   default    test               Synced  Healthy        
-rbac.authorization.k8s.io  ClusterRole             test-cluster-role  Synced  Healthy        
+rbac.authorization.k8s.io  ClusterRole             test-cluster-role  Synced  Healthy        clusterrole.rbac.authorization.k8s.io/test-cluster-role reconciled. clusterrole.rbac.authorization.k8s.io/test-cluster-role configured
                            Service      default    service-name1      Synced  Healthy        
 `
 	expectation = fmt.Sprintf(expectation, timeStr, timeStr, timeStr)
@@ -2099,6 +2099,7 @@ func (c *fakeAppServiceClient) Get(ctx context.Context, in *applicationpkg.Appli
 					Name:      "test-cluster-role",
 					Status:    "Synced",
 					Version:   "v1",
+
 					Health: &v1alpha1.HealthStatus{
 						Status:  health.HealthStatusHealthy,
 						Message: "health-message",
@@ -2143,7 +2144,7 @@ func (c *fakeAppServiceClient) Get(ctx context.Context, in *applicationpkg.Appli
 							HookType:  "",
 							HookPhase: common.OperationRunning,
 							Version:   "v1",
-							Message:   "",
+							Message:   "clusterrole.rbac.authorization.k8s.io/test-cluster-role reconciled. clusterrole.rbac.authorization.k8s.io/test-cluster-role configured",
 							SyncPhase: common.SyncPhaseSync,
 						},
 					},

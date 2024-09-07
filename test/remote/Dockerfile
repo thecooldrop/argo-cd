@@ -45,7 +45,8 @@ COPY --from=go /go/bin/goreman /usr/local/bin/goreman
 COPY ./test/e2e/testdata/ /app/config/testdata/
 
 # Prepare user configuration & build environments
-RUN useradd -l -u 1000 -d /home/user -s /bin/bash user && \
+RUN userdel -r ubuntu && \
+    useradd -l -u 1000 -d /home/user -s /bin/bash user && \
     echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user && \
     mkdir -p /home/user && \
     HOME=/home/user git config --global user.name "ArgoCD Test User" && \
