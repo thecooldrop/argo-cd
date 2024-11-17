@@ -1842,15 +1842,17 @@ func mergeDuplicateClusterLevelResources(resourceStates []*versionedResourceStat
 			groupVersion += (resource.Group + "/")
 		}
 		groupVersion += resource.Version
-		apiResourceList, err := discoveryClient.ServerResourcesForGroupVersion(groupVersion)
-		if err != nil {
-			errors.CheckError(fmt.Errorf("unable to retrieve server resources for group and version combination %s: %w", groupVersion, err))
-		}
-
-		for _, apiResource := range apiResourceList.APIResources {
-			if resource.Group == apiResource.Group && resource.Version == apiResource.Version && resource.Kind == apiResource.Kind {
-				if !apiResource.Namespaced {
-					resource.Namespace = ""
+		// Here we are handling only the non-error case. The error case is ignored, because
+		// if there is an error, we assume it is not caused by technical reachability or request format
+		// but rather due to the API server not knowing the group/version which we are querying for.
+		// In that case, there is nothing sensible we can do, and we simply proceed by assuming that
+		// erroneous resource is correctly namespaced.
+		if apiResourceList, err := discoveryClient.ServerResourcesForGroupVersion(groupVersion); err == nil {
+			for _, apiResource := range apiResourceList.APIResources {
+				if resource.Group == apiResource.Group && resource.Version == apiResource.Version && resource.Kind == apiResource.Kind {
+					if !apiResource.Namespaced {
+						resource.Namespace = ""
+					}
 				}
 			}
 		}
